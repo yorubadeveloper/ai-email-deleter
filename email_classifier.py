@@ -4,8 +4,6 @@ from langchain_community.llms import Ollama
 from langchain_core.output_parsers import BaseOutputParser
 from langchain_core.prompts import PromptTemplate, FewShotPromptTemplate
 
-# from openai import OpenAI
-
 
 llm = Ollama(model="llama3", system="You are an email classifier. Your job is to analyze the subject, content, and "
                                     "sender of an email and determine whether the email is 'important' or "
@@ -19,10 +17,9 @@ llm = Ollama(model="llama3", system="You are an email classifier. Your job is to
                                     "Always respond with either 'important' or 'unimportant'.")
 
 
-def create_prompt_template():
+def create_prompt_template() -> FewShotPromptTemplate:
     """
     Create a prompt template for the email classifier.
-    :param email_details: Email details.
     :return: Prompt template.
     """
 
