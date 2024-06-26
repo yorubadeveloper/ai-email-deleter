@@ -1,89 +1,117 @@
-import re
+import enum
+import os
 
-from langchain_community.llms import Ollama
-from langchain_core.output_parsers import BaseOutputParser
-from langchain_core.prompts import PromptTemplate, FewShotPromptTemplate
-
-
-llm = Ollama(model="llama3", system="You are an email classifier. Your job is to analyze the subject, content, and "
-                                    "sender of an email and determine whether the email is 'important' or "
-                                    "'unimportant'. Use the provided examples to guide your classification.\n\n"
-                                    "An email is considered 'important' if it requires timely action, is from a "
-                                    "significant contact, or contains critical information. Examples include emails "
-                                    "from your boss, project updates, urgent requests, or important personal messages.\n\n"
-                                    "An email is considered 'unimportant' if it is a promotional message, a routine "
-                                    "notification, or spam. Examples include advertisements, social media updates, "
-                                    "newsletters, and generic greetings.\n\n"
-                                    "Always respond with either 'important' or 'unimportant'.")
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_experimental.llms.ollama_functions import OllamaFunctions
+from langchain_community.chat_models import ChatOllama
+from langchain_core.pydantic_v1 import BaseModel, Field
+from langchain_openai import ChatOpenAI
 
 
-def create_prompt_template() -> FewShotPromptTemplate:
+class Classification(enum.Enum):
+    important = "important"
+    unimportant = "unimportant"
+
+
+class EmailClassifierModel(BaseModel):
     """
-    Create a prompt template for the email classifier.
-    :return: Prompt template.
+    Classifies emails as 'important' or 'unimportant' and provides a reason for the classification.
     """
-
-    examples = [
-        {"input": "Given an email with sender: bank@security.com, subject: Your monthly statement is ready, body: This "
-                  "email contains your bank statement for the month of May. Please review the attached document for "
-                  "details.\n\n"
-                  "classify the email as 'Important' or 'Unimportant'.",
-         "output": "Important, because it contains bank information."},
-
-        {"input": "Given an email with sender: promotions@retailstore.com, subject: Huge savings this weekend!, body: "
-                  "Get 50% off all summer clothing this weekend only! Shop now and save big!\n\n"
-                  "classify the email as 'Important' or 'Unimportant'.",
-         "output": "Unimportant, because it is a promotional message."},
-    ]
-    example_template = """
-    user: {input}
-    ai: {output}
-    """
-    suffix = """
-    user: {input}
-    ai: """
-    example_prompt = PromptTemplate(
-        input_variables=["input", "output"],
-        template=example_template
+    classification:  Classification = Field(
+        ...,
+        description="The classification of the email.",
+        required=True
     )
-    few_shot_prompt = FewShotPromptTemplate(
-        examples=examples,
-        example_prompt=example_prompt,
-        input_variables=["input"],
-        suffix=suffix
+    reason: str = Field(
+        ...,
+        description="The reason for the classification.",
+        required=True
     )
-    return few_shot_prompt
 
 
-class EmailOutputParser(BaseOutputParser):
-    """Custom output parser to classify email importance."""
+system_prompt = """You are an email classifier. Your job is to analyze the subject, content, and 
+sender of an email and determine whether the email is 'important' or 'unimportant'. ALWAYS provide a reason for your 
+answer. Use the provided examples to guide your classification.
 
-    def parse(self, output):
-        output = output.strip().lower()
+An email is considered 'important' if it requires timely action, is from a 
+significant contact, or contains critical information. Examples include emails 
+from your work, project updates, urgent requests, or important personal messages.
 
-        pattern_important = r'\bimportant\b'
-        pattern_unimportant = r'\bunimportant\b'
+An email is considered 'unimportant' if it is a promotional message, a routine 
+notification, or spam. Examples include advertisements, social media updates, 
+newsletters, and generic greetings.
 
-        match_important = re.search(pattern_important, output)
-        match_unimportant = re.search(pattern_unimportant, output)
+Always respond with either 'important' or 'unimportant' as the classification and the reason for 
+your answer."""
 
-        if match_unimportant:
-            return 'unimportant'
-        elif match_important:
-            return 'important'
+
+class EmailClassifier:
+    """
+    Email classifier.
+    """
+
+    def __init__(self, openai=False):
+        if openai:
+            self.llm = ChatOpenAI(model="gpt-4o", openai_api_key=os.getenv("OPENAI_API_KEY"), temperature=0)
         else:
-            return 'unknown'
+            print("Using Ollama model for email classification.")
+            self.llm = OllamaFunctions(model="llama3")
 
+    def classify_email(self, email_details: dict) -> tuple[str, str]:
+        """
+        Classify an email using the Ollama model.
+        :param email_details: Email details.
+        :return: Email classification.
+        """
+        user_prompt = (f"Given an email with sender: {email_details['sender']}, subject: {email_details['subject']}, "
+                       f"body: {email_details['body']}\n\n classify the email as 'important' or 'unimportant'.")
+        messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
+        # json_schema = self._classifier_json_schema()
+        structured_output = self.llm.with_structured_output(EmailClassifierModel)
+        print("Invoking prompt...")
+        response = structured_output.invoke(messages)
+        print(response)
+        classification = response.get("classification", "")
+        reason = response.get("reason", "")
+        return classification, reason
 
-def classify_email(email_details: dict) -> str:
-    """
-    Classify an email using the Ollama model.
-    :param email_details: Email details.
-    :return: Email classification.
-    """
-    user_prompt = (f"Given an email with sender: {email_details['sender']}, subject: {email_details['subject']}, "
-                   f"body: {email_details['body']}\n\n classify the email as 'Important' or 'Unimportant'.")
-    prompt_template = create_prompt_template()
-    chain = prompt_template | llm | EmailOutputParser()
-    parsed_response = chain.invoke({"input": user_prompt})
-    return parsed_response
+    def _create_prompt(self) -> ChatPromptTemplate:
+        """
+        Create a prompt template for the email classifier.
+        :return: Prompt template.
+        """
+
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    system_prompt,
+                ),
+                ("user", "{input}"),
+            ]
+        )
+        return prompt
+
+    def _classifier_json_schema(self) -> dict:
+        """
+        Return the JSON schema of the email classifier.
+        :return: JSON schema.
+        """
+        return {
+            "title": "email_classifier",
+            "description": "Classifies emails as 'important' or 'unimportant' and provides a reason for the "
+                           "classification.",
+            "type": "object",
+            "properties": {
+                "classification": {
+                    "type": "string",
+                    "enum": ["important", "unimportant"],
+                    "description": "The classification of the email. Either 'important' or 'unimportant'."
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "The reason for the classification of the email."
+                }
+            },
+            "required": ["classification", "reason"]
+        }
