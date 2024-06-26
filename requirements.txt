@@ -5,10 +5,8 @@ google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.0
 googleapis-common-protos==1.63.1
 langchain==0.2.3
-langchain-community==0.2.4
-langchain-core==0.2.5
+langchain-experimental==0.0.62
 langchain-text-splitters==0.2.1
-langsmith==0.1.75
 marshmallow==3.21.3
 multidict==6.0.5
 mypy-extensions==1.0.0

@@ -7,8 +7,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-from email_classifier import classify_email
-# from openai_email_classifier import classify_email
+from email_classifier import EmailClassifier
 
 SCOPES = ['https://mail.google.com/']
 
@@ -94,14 +93,16 @@ def main():
             for email in emails:
                 email_id = email['id']
                 email_details = get_email_details(service, email_id)
-                classification = classify_email(email_details)
-                # print({"classification": classification, "subject": email_details['subject']})
-                if classification == 'unimportant':
-                    delete_emails(service, email_id)
-                    print(f"Email with ID {email_id}, subject {email_details['subject']} is not important and has been "
-                          f"deleted.")
-                else:
-                    print(f"Email with ID {email_id} is important and will not be deleted.")
+                print("Running email classifier...")
+                classifier = EmailClassifier()
+                classification, reason = classifier.classify_email(email_details)
+                print({"classification": classification, "reason": reason, "subject": email_details['subject']})
+                # if classification == 'unimportant':
+                #     delete_emails(service, email_id)
+                #     print(f"Email with ID {email_id}, subject {email_details['subject']} is not important and has been "
+                #           f"deleted.")
+                # else:
+                #     print(f"Email with ID {email_id} is important and will not be deleted.")
 
 
 if __name__ == '__main__':
